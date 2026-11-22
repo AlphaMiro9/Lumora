@@ -34,6 +34,9 @@
                                 <MenuItem x:Name="MiComments" Header="Kommentare ausblenden" IsCheckable="True" Click="OnSettingChanged" />
                                 <MenuItem x:Name="MiFocus" Header="Fokus-Modus (keine Vorschläge neben dem Video)" IsCheckable="True" Click="OnSettingChanged" />
                                 <Separator />
+                                <MenuItem x:Name="MiOwn" Header="Eigener Player (Videos in Lumora abspielen)" IsCheckable="True" Click="OnSettingChanged" />
+                                <MenuItem x:Name="MiSb" Header="Sponsor-Segmente überspringen (SponsorBlock)" IsCheckable="True" Click="OnSettingChanged" />
+                                <Separator />
                                 <MenuItem Header="Design">
                                     <MenuItem x:Name="MiAuto" Header="Wie Windows" IsCheckable="True" Tag="auto" Click="OnSchemeChanged" />
                                     <MenuItem x:Name="MiLight" Header="Hell" IsCheckable="True" Tag="light" Click="OnSchemeChanged" />

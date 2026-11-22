@@ -11,8 +11,8 @@ using Microsoft.Web.WebView2.Core;
 namespace Lumora.Shell;
 
 /// <summary>
-/// Lumora: eigene Startseite, Favoriten, Verlauf und Anpassungen rund um die YouTube-Seite.
-/// Suche und Wiedergabe liefert YouTube selbst; Werbung wird nicht verändert oder blockiert.
+/// Lumora: eigene Startseite, eigener Player, Favoriten, Verlauf und Anpassungen rund um YouTube.
+/// Suche liefert die YouTube-Seite; Videos laufen im eigenen Player (YouTubes Einbettungs-Player). Werbung wird nicht verändert oder blockiert.
 /// </summary>
 public partial class MainWindow : Window
 {
@@ -23,6 +23,9 @@ public partial class MainWindow : Window
     private string? _scriptId;
     private bool _onStartPage, _startingInternal;
     private string? _currentVideoId;
+    private bool _playerOk, _rawWatch;
+
+    private bool UseOwnPlayer => _playerOk && _store.Settings.OwnPlayer && !_rawWatch;
 
     public MainWindow()
     {
@@ -57,6 +60,17 @@ public partial class MainWindow : Window
         }
 
         var core = Web.CoreWebView2;
+        try
+        {
+            var webDir = Path.Combine(dir, "web");
+            PlayerPage.Write(webDir);
+            core.SetVirtualHostNameToFolderMapping(YouTubeUrls.PlayerHost, webDir, CoreWebView2HostResourceAccessKind.Allow);
+            _playerOk = true;
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or ArgumentException)
+        {
+            _playerOk = false; // ohne eigenen Player weiter: Videos laufen dann auf der YouTube-Seite
+        }
         core.Settings.AreDevToolsEnabled = false;
         core.Settings.IsStatusBarEnabled = false;
         core.Settings.IsPasswordAutosaveEnabled = false;
@@ -67,11 +81,18 @@ public partial class MainWindow : Window
         core.SourceChanged += (_, _) => OnSourceChanged();
         core.HistoryChanged += (_, _) => { BackButton.IsEnabled = core.CanGoBack; ForwardButton.IsEnabled = core.CanGoForward; };
         core.ContainsFullScreenElementChanged += (_, _) => SetFullscreen(core.ContainsFullScreenElement);
-        core.WebMessageReceived += (_, e) => OnWebMessage(e.WebMessageAsJson);
+        core.WebMessageReceived += (_, e) => OnWebMessage(e.WebMessageAsJson, e.Source);
 
         core.NavigationStarting += (_, e) =>
         {
             if (!Uri.TryCreate(e.Uri, UriKind.Absolute, out var uri)) { e.Cancel = true; return; }
+            if (YouTubeUrls.IsPlayerPage(uri)) return;
+            if (UseOwnPlayer && YouTubeUrls.TryGetVideoId(uri) is { } vid)
+            {
+                e.Cancel = true;
+                Dispatcher.BeginInvoke(new Action(() => PlayVideo(vid)));
+                return;
+            }
             if (uri.Scheme == "about" || (uri.Scheme == "data" && _startingInternal) || YouTubeUrls.IsInApp(uri)) return;
             e.Cancel = true;
             OpenExternal(uri);
@@ -94,13 +115,18 @@ public partial class MainWindow : Window
         if (Web.CoreWebView2 is null) return;
         _startingInternal = true;
         _onStartPage = true;
+        _rawWatch = false;
         Web.CoreWebView2.NavigateToString(StartPage.Build(_store));
         Title = "Lumora";
     }
 
-    private void OnWebMessage(string json)
+    private void OnWebMessage(string json, string source)
     {
-        if (!_onStartPage) return; // Nachrichten nur von der eigenen Startseite annehmen
+        Uri.TryCreate(source, UriKind.Absolute, out var src);
+        var fromStart = _onStartPage;
+        var fromYouTube = src is not null && YouTubeUrls.IsInApp(src) && src.Host.EndsWith("youtube.com", StringComparison.OrdinalIgnoreCase);
+        var fromPlayer = YouTubeUrls.IsPlayerPage(src);
+        if (!fromStart && !fromYouTube && !fromPlayer) return;
         try
         {
             using var doc = JsonDocument.Parse(json);
@@ -109,6 +135,19 @@ public partial class MainWindow : Window
             using var msg = JsonDocument.Parse(text);
             var root = msg.RootElement;
             var type = root.TryGetProperty("type", out var t) ? t.GetString() : null;
+            var vid = root.TryGetProperty("id", out var idEl) && idEl.ValueKind == JsonValueKind.String ? idEl.GetString() : null;
+            switch (type)
+            {
+                case "play" when (fromStart || fromYouTube) && YouTubeUrls.IsValidVideoId(vid):
+                    _rawWatch = false;
+                    PlayVideo(vid!);
+                    return;
+                case "raw" when fromPlayer && YouTubeUrls.IsValidVideoId(vid):
+                    _rawWatch = true;
+                    Go(YouTubeUrls.WatchUrl(vid!));
+                    return;
+            }
+            if (!fromStart) return; // alles Weitere nur von der eigenen Startseite
             switch (type)
             {
                 case "search":
@@ -117,13 +156,20 @@ public partial class MainWindow : Window
                 case "clearRecent": _store.ClearRecent(); break;
                 case "clearSearches": _store.ClearSearches(); break;
                 case "unfav":
-                    if (root.TryGetProperty("id", out var id) && YouTubeUrls.IsValidVideoId(id.GetString())) _store.RemoveFavorite(id.GetString()!);
+                    if (YouTubeUrls.IsValidVideoId(vid)) _store.RemoveFavorite(vid!);
                     break;
                 default: return;
             }
             ShowStartPage();
         }
         catch (JsonException) { /* ungültige Nachricht ignorieren */ }
+    }
+
+    private void PlayVideo(string id)
+    {
+        if (Web.CoreWebView2 is null) return;
+        _onStartPage = false;
+        Web.CoreWebView2.Navigate(YouTubeUrls.PlayerUrl(id, _store.Settings.SponsorBlock));
     }
 
     // ---------- Seitenwechsel verfolgen ----------
@@ -135,7 +181,7 @@ public partial class MainWindow : Window
         else if (!uriText.StartsWith("data:", StringComparison.Ordinal)) _onStartPage = false;
 
         Uri.TryCreate(uriText, UriKind.Absolute, out var uri);
-        _currentVideoId = YouTubeUrls.TryGetVideoId(uri);
+        _currentVideoId = YouTubeUrls.TryGetVideoId(uri) ?? YouTubeUrls.TryGetPlayerVideoId(uri);
         if (_currentVideoId != null) _store.AddRecent(_currentVideoId, Web.CoreWebView2.DocumentTitle);
         UpdateFavoriteButton();
     }
@@ -152,7 +198,7 @@ public partial class MainWindow : Window
         var has = _currentVideoId != null;
         FavButton.IsEnabled = has;
         var fav = has && _store.IsFavorite(_currentVideoId!);
-        FavButton.Content = fav ? "\uE735" : "\uE734";
+        FavButton.Content = fav ? "" : "";
         FavButton.ToolTip = fav ? "Aus Favoriten entfernen" : "Zu Favoriten hinzufügen";
         AutomationProperties.SetName(FavButton, (string)FavButton.ToolTip);
     }
@@ -171,7 +217,14 @@ public partial class MainWindow : Window
         var core = Web.CoreWebView2;
         if (_scriptId != null) core.RemoveScriptToExecuteOnDocumentCreated(_scriptId);
         var css = JsonSerializer.Serialize(StartPage.BuildCss(_store.Settings));
-        var js = "(function(){var c=" + css + ";function a(){var s=document.getElementById('lumora-style');" +
+        var own = UseOwnPlayer ? "true" : "false";
+        // Klick auf einen Videolink der YouTube-Seite öffnet Lumoras Player (die Seite wechselt sonst ohne Neuladen).
+        var click = "if(" + own + "&&window===window.top&&/(^|\\.)youtube\\.com$/.test(location.hostname)){document.addEventListener('click',function(e){" +
+                    "if(e.button!==0||e.ctrlKey||e.metaKey||e.shiftKey||e.altKey)return;var a=e.target.closest&&e.target.closest('a[href]');if(!a)return;" +
+                    "var u;try{u=new URL(a.href,location.href)}catch(x){return}if(u.pathname!=='/watch')return;var v=u.searchParams.get('v');" +
+                    "if(!/^[A-Za-z0-9_-]{11}$/.test(v||''))return;e.preventDefault();e.stopPropagation();" +
+                    "window.chrome.webview.postMessage(JSON.stringify({type:'play',id:v}))},true)}";
+        var js = click + "(function(){var c=" + css + ";function a(){var s=document.getElementById('lumora-style');" +
                  "if(!s){s=document.createElement('style');s.id='lumora-style';(document.head||document.documentElement).appendChild(s)}s.textContent=c}" +
                  "a();document.addEventListener('DOMContentLoaded',a)})();";
         _scriptId = await core.AddScriptToExecuteOnDocumentCreatedAsync(js);
@@ -183,6 +236,8 @@ public partial class MainWindow : Window
         MiShorts.IsChecked = s.HideShorts;
         MiComments.IsChecked = s.HideComments;
         MiFocus.IsChecked = s.FocusMode;
+        MiOwn.IsChecked = s.OwnPlayer;
+        MiSb.IsChecked = s.SponsorBlock;
         MiAuto.IsChecked = s.ColorScheme == "auto";
         MiLight.IsChecked = s.ColorScheme == "light";
         MiDark.IsChecked = s.ColorScheme == "dark";
@@ -195,6 +250,8 @@ public partial class MainWindow : Window
         s.HideShorts = MiShorts.IsChecked == true;
         s.HideComments = MiComments.IsChecked == true;
         s.FocusMode = MiFocus.IsChecked == true;
+        s.OwnPlayer = MiOwn.IsChecked == true;
+        s.SponsorBlock = MiSb.IsChecked == true;
         _store.SaveSettings();
         if (Web.CoreWebView2 is null) return;
         await InstallScriptAsync();
@@ -230,6 +287,7 @@ public partial class MainWindow : Window
         if (string.IsNullOrWhiteSpace(query) || Web.CoreWebView2 is null) return;
         _store.AddSearch(query);
         _onStartPage = false;
+        _rawWatch = false;
         Web.CoreWebView2.Navigate(YouTubeUrls.Search(query));
     }
 

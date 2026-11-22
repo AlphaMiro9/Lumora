@@ -48,6 +48,28 @@ public class YouTubeUrlsTests
         => Assert.Equal(expected, YouTubeUrls.IsSafeExternal(new Uri(url)));
 }
 
+public class PlayerUrlTests
+{
+    [Fact]
+    public void Player_url_roundtrips_video_id()
+    {
+        var url = YouTubeUrls.PlayerUrl("dQw4w9WgXcQ", true);
+        Assert.Equal("https://lumora.local/player.html?v=dQw4w9WgXcQ&sb=1", url);
+        Assert.Equal("dQw4w9WgXcQ", YouTubeUrls.TryGetPlayerVideoId(new Uri(url)));
+        Assert.True(YouTubeUrls.IsPlayerPage(new Uri(url)));
+    }
+
+    [Theory]
+    [InlineData("https://lumora.local.evil.example/player.html?v=dQw4w9WgXcQ")]
+    [InlineData("http://lumora.local/player.html?v=dQw4w9WgXcQ")]
+    [InlineData("https://lumora.local/player.html?v=kurz")]
+    public void Foreign_or_invalid_player_urls_are_rejected(string url)
+        => Assert.Null(YouTubeUrls.TryGetPlayerVideoId(new Uri(url)));
+
+    [Fact]
+    public void New_settings_default_to_on() => Assert.True(new AppSettings().OwnPlayer && new AppSettings().SponsorBlock);
+}
+
 public class LocalStoreTests
 {
     private const string A = "dQw4w9WgXcQ", B = "abcdefghijk";

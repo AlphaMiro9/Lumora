@@ -9,6 +9,8 @@ public static class YouTubeUrls
     public const string Subscriptions = "https://www.youtube.com/feed/subscriptions";
     public const string Library = "https://www.youtube.com/feed/library";
 
+    public const string PlayerHost = "lumora.local";
+
     private static readonly string[] AllowedDomains = { "youtube.com", "youtube-nocookie.com", "google.com" };
 
     /// <summary>Adresse der normalen YouTube-Suche. Leere Eingaben führen zur Startseite.</summary>
@@ -38,6 +40,25 @@ public static class YouTubeUrls
         if (uri is null || !IsInApp(uri) || !uri.Host.EndsWith("youtube.com", StringComparison.OrdinalIgnoreCase)) return null;
         if (!uri.AbsolutePath.Equals("/watch", StringComparison.OrdinalIgnoreCase)) return null;
         foreach (var part in uri.Query.TrimStart('?').Split('&', StringSplitOptions.RemoveEmptyEntries))
+        {
+            var kv = part.Split('=', 2);
+            if (kv.Length == 2 && kv[0] == "v" && IsValidVideoId(kv[1])) return kv[1];
+        }
+        return null;
+    }
+
+    /// <summary>Adresse der eigenen Player-Seite (liegt lokal, wird über einen virtuellen Host ausgeliefert).</summary>
+    public static string PlayerUrl(string id, bool sponsorBlock)
+        => "https://" + PlayerHost + "/player.html?v=" + id + "&sb=" + (sponsorBlock ? "1" : "0");
+
+    public static bool IsPlayerPage(Uri? uri)
+        => uri is not null && uri.Scheme == Uri.UriSchemeHttps && uri.Host.Equals(PlayerHost, StringComparison.OrdinalIgnoreCase);
+
+    /// <summary>Video-ID aus einer Adresse der eigenen Player-Seite (sonst null).</summary>
+    public static string? TryGetPlayerVideoId(Uri? uri)
+    {
+        if (!IsPlayerPage(uri)) return null;
+        foreach (var part in uri!.Query.TrimStart('?').Split('&', StringSplitOptions.RemoveEmptyEntries))
         {
             var kv = part.Split('=', 2);
             if (kv.Length == 2 && kv[0] == "v" && IsValidVideoId(kv[1])) return kv[1];

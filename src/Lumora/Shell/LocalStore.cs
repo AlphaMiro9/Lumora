@@ -15,6 +15,10 @@ public sealed class AppSettings
     public bool HideShorts { get; set; } = true;
     public bool HideComments { get; set; }
     public bool FocusMode { get; set; }
+    /// <summary>Videos im eigenen Lumora-Player statt auf der YouTube-Seite abspielen.</summary>
+    public bool OwnPlayer { get; set; } = true;
+    /// <summary>Sponsor-Segmente (SponsorBlock) im eigenen Player überspringen.</summary>
+    public bool SponsorBlock { get; set; } = true;
     /// <summary>"auto", "light" oder "dark"</summary>
     public string ColorScheme { get; set; } = "auto";
     public string Accent { get; set; } = LocalStore.DefaultAccent;

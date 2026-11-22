@@ -9,7 +9,7 @@
     <RootNamespace>Lumora</RootNamespace>
     <AssemblyName>Lumora</AssemblyName>
     <ApplicationManifest>app.manifest</ApplicationManifest>
-    <Version>0.3.0</Version>
+    <Version>0.4.0</Version>
   </PropertyGroup>
 
   <ItemGroup>
