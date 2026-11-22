@@ -18,8 +18,11 @@ jobs:
           dotnet publish src/Lumora -c Release -r win-arm64 --self-contained -p:PublishSingleFile=true -p:IncludeNativeLibrariesForSelfExtract=true -p:EnableCompressionInSingleFile=true -o publish/win-arm64
           Copy-Item publish/win-x64/Lumora.exe Lumora-win-x64.exe
           Copy-Item publish/win-arm64/Lumora.exe Lumora-win-arm64.exe
+          $sums = foreach ($f in 'Lumora-win-x64.exe','Lumora-win-arm64.exe') { (Get-FileHash $f -Algorithm SHA256).Hash.ToLower() + '  ' + $f }
+          $sums | Set-Content -Encoding ascii SHA256SUMS.txt
       - uses: softprops/action-gh-release@v2
         with:
           files: |
             Lumora-win-x64.exe
             Lumora-win-arm64.exe
+            SHA256SUMS.txt

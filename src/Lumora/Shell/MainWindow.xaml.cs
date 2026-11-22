@@ -11,8 +11,8 @@ using Microsoft.Web.WebView2.Core;
 namespace Lumora.Shell;
 
 /// <summary>
-/// Lumora: eigene Startseite, eigener Player, Favoriten, Verlauf und Anpassungen rund um YouTube.
-/// Suche liefert die YouTube-Seite; Videos laufen im eigenen Player (YouTubes Einbettungs-Player). Werbung wird nicht verändert oder blockiert.
+/// Lumora: eigene Startseite, Favoriten, Verlauf und Anpassungen rund um die YouTube-Seite.
+/// Suche und Wiedergabe liefert YouTube selbst; Werbung wird nicht verändert oder blockiert.
 /// </summary>
 public partial class MainWindow : Window
 {
@@ -24,6 +24,13 @@ public partial class MainWindow : Window
     private bool _onStartPage, _startingInternal;
     private string? _currentVideoId;
     private bool _playerOk, _rawWatch;
+    private UpdateInfo? _update;
+
+    private static readonly HttpClient Http = new() { Timeout = TimeSpan.FromSeconds(20) };
+    private static readonly HttpClient DownloadHttp = new() { Timeout = Timeout.InfiniteTimeSpan };
+
+    [DllImport("dwmapi.dll")]
+    private static extern int DwmSetWindowAttribute(IntPtr hwnd, int attribute, ref int value, int size);
 
     private bool UseOwnPlayer => _playerOk && _store.Settings.OwnPlayer && !_rawWatch;
 
@@ -31,9 +38,10 @@ public partial class MainWindow : Window
     {
         InitializeComponent();
         var dir = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "Lumora");
-        _store = new LocalStore(Path.Combine(dir, "lumora-data.json"));
+        _store = new LocalStore(Path.Combine(dir, "lumora.db"), Path.Combine(dir, "lumora-data.json"));
         ApplySettingsToUi();
 
+        SourceInitialized += (_, _) => ApplyFrameColor();
         Loaded += async (_, _) => await StartAsync(dir);
         PreviewKeyDown += (_, e) =>
         {
@@ -52,6 +60,7 @@ public partial class MainWindow : Window
         }
         catch (Exception ex) when (ex is WebView2RuntimeNotFoundException or COMException or InvalidOperationException or IOException)
         {
+            AppLog.Error("WebView2 konnte nicht gestartet werden", ex);
             ErrorText.Text = "Der Browser-Teil konnte nicht gestartet werden. Bitte installiere die „Microsoft Edge WebView2 Runtime“ " +
                              "(in Windows 11 bereits enthalten) und starte Lumora neu.\n\n" + ex.Message;
             ErrorText.Visibility = Visibility.Visible;
@@ -69,6 +78,7 @@ public partial class MainWindow : Window
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or ArgumentException)
         {
+            AppLog.Warn("Eigener Player nicht verfügbar", ex);
             _playerOk = false; // ohne eigenen Player weiter: Videos laufen dann auf der YouTube-Seite
         }
         core.Settings.AreDevToolsEnabled = false;
@@ -106,6 +116,10 @@ public partial class MainWindow : Window
 
         BackButton.IsEnabled = ForwardButton.IsEnabled = false;
         ShowStartPage();
+        AppLog.Info("Browser-Teil bereit, eigener Player: " + (_playerOk ? "ja" : "nein"));
+
+        UpdateService.CleanupOld();
+        if (_store.Settings.AutoUpdate) _ = CheckForUpdateAsync(manual: false);
     }
 
     // ---------- Startseite ----------
@@ -238,10 +252,12 @@ public partial class MainWindow : Window
         MiFocus.IsChecked = s.FocusMode;
         MiOwn.IsChecked = s.OwnPlayer;
         MiSb.IsChecked = s.SponsorBlock;
+        MiAutoUpdate.IsChecked = s.AutoUpdate;
         MiAuto.IsChecked = s.ColorScheme == "auto";
         MiLight.IsChecked = s.ColorScheme == "light";
         MiDark.IsChecked = s.ColorScheme == "dark";
         Bar.Background = (SolidColorBrush)new BrushConverter().ConvertFromString(s.Accent)!;
+        ApplyFrameColor();
     }
 
     private async void OnSettingChanged(object sender, RoutedEventArgs e)
@@ -252,6 +268,7 @@ public partial class MainWindow : Window
         s.FocusMode = MiFocus.IsChecked == true;
         s.OwnPlayer = MiOwn.IsChecked == true;
         s.SponsorBlock = MiSb.IsChecked == true;
+        s.AutoUpdate = MiAutoUpdate.IsChecked == true;
         _store.SaveSettings();
         if (Web.CoreWebView2 is null) return;
         await InstallScriptAsync();
@@ -303,6 +320,7 @@ public partial class MainWindow : Window
         {
             _prevState = WindowState; _prevStyle = WindowStyle; _prevResize = ResizeMode;
             Bar.Visibility = Visibility.Collapsed;
+            UpdateBar.Visibility = Visibility.Collapsed;
             WindowState = WindowState.Normal; // nötig, damit die Taskleiste sicher überdeckt wird
             WindowStyle = WindowStyle.None;
             ResizeMode = ResizeMode.NoResize;
@@ -312,6 +330,7 @@ public partial class MainWindow : Window
         {
             WindowStyle = _prevStyle; ResizeMode = _prevResize; WindowState = _prevState;
             Bar.Visibility = Visibility.Visible;
+            UpdateBar.Visibility = _update is null ? Visibility.Collapsed : Visibility.Visible;
         }
     }
 
@@ -328,6 +347,96 @@ public partial class MainWindow : Window
     private void OnSearch(object s, RoutedEventArgs e) => Search(SearchBox.Text);
     private void OnSearchKeyDown(object s, KeyEventArgs e) { if (e.Key == Key.Enter) { Search(SearchBox.Text); e.Handled = true; } }
     private void OnFocusSearch(object s, ExecutedRoutedEventArgs e) { SearchBox.Focus(); SearchBox.SelectAll(); }
+
+    // ---------- Fensterrand in Lumoras Farbe (Windows 11) ----------
+
+    private void ApplyFrameColor()
+    {
+        try
+        {
+            var hwnd = new System.Windows.Interop.WindowInteropHelper(this).Handle;
+            if (hwnd == IntPtr.Zero) return;
+            var c = (Color)ColorConverter.ConvertFromString(_store.Settings.Accent);
+            var rgb = c.R | (c.G << 8) | (c.B << 16);
+            var white = 0x00FFFFFF;
+            DwmSetWindowAttribute(hwnd, 34, ref rgb, sizeof(int)); // Rahmenfarbe
+            DwmSetWindowAttribute(hwnd, 35, ref rgb, sizeof(int)); // Titelleiste
+            DwmSetWindowAttribute(hwnd, 36, ref white, sizeof(int)); // Titeltext
+        }
+        catch (Exception ex) when (ex is DllNotFoundException or EntryPointNotFoundException or FormatException or InvalidCastException)
+        {
+            // ältere Windows-Versionen: normaler Rahmen
+        }
+    }
+
+    // ---------- Update-Modus ----------
+
+    private async Task CheckForUpdateAsync(bool manual)
+    {
+        try
+        {
+            var info = await UpdateService.CheckAsync(Http);
+            if (info is null)
+            {
+                AppLog.Info("Update-Suche: keine neuere Version");
+                if (manual) MessageBox.Show(this, "Du hast die neueste Version (" + UpdateService.Current + ").", "Lumora", MessageBoxButton.OK, MessageBoxImage.Information);
+                return;
+            }
+            _update = info;
+            AppLog.Info("Update gefunden: " + info.Version);
+            UpdateText.Text = "Lumora " + info.Version + " ist verfügbar (du nutzt " + UpdateService.Current + ").";
+            UpdateInstallButton.IsEnabled = true;
+            UpdateBar.Visibility = Visibility.Visible;
+        }
+        catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException or JsonException)
+        {
+            AppLog.Warn("Update-Suche nicht möglich", ex);
+            if (manual) MessageBox.Show(this, "Die Update-Suche ist gerade nicht möglich. Prüfe deine Internetverbindung.", "Lumora", MessageBoxButton.OK, MessageBoxImage.Warning);
+        }
+    }
+
+    private async void OnInstallUpdate(object s, RoutedEventArgs e)
+    {
+        var info = _update;
+        if (info is null) return;
+        UpdateInstallButton.IsEnabled = false;
+        try
+        {
+            var exe = Environment.ProcessPath;
+            if (exe is null || !Path.GetFileName(exe).Equals("Lumora.exe", StringComparison.OrdinalIgnoreCase))
+            {
+                UpdateInstallButton.IsEnabled = true;
+                OpenExternal(new Uri(info.ReleaseUrl));
+                return;
+            }
+            var folder = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "Lumora", "update");
+            UpdateText.Text = "Lade Update …";
+            var file = await UpdateService.DownloadAsync(DownloadHttp, info, folder, new Progress<int>(p => UpdateText.Text = "Lade Update … " + p + " %"));
+            UpdateService.ReplaceExecutable(exe, file);
+            AppLog.Info("Update " + info.Version + " installiert, Lumora startet neu");
+            Process.Start(new ProcessStartInfo(exe) { UseShellExecute = true });
+            Application.Current.Shutdown();
+        }
+        catch (Exception ex) when (ex is HttpRequestException or IOException or UnauthorizedAccessException or InvalidOperationException or InvalidDataException or TaskCanceledException)
+        {
+            AppLog.Error("Update fehlgeschlagen", ex);
+            UpdateText.Text = "Lumora " + info.Version + " ist verfügbar.";
+            UpdateInstallButton.IsEnabled = true;
+            var open = MessageBox.Show(this, "Das automatische Update hat nicht geklappt:\n\n" + ex.Message +
+                "\n\nSoll die Download-Seite im Browser geöffnet werden?", "Lumora", MessageBoxButton.YesNo, MessageBoxImage.Warning);
+            if (open == MessageBoxResult.Yes) OpenExternal(new Uri(info.ReleaseUrl));
+        }
+    }
+
+    private void OnDismissUpdate(object s, RoutedEventArgs e) { _update = null; UpdateBar.Visibility = Visibility.Collapsed; }
+    private async void OnCheckUpdate(object s, RoutedEventArgs e) => await CheckForUpdateAsync(manual: true);
+
+    private void OnOpenLog(object s, RoutedEventArgs e)
+    {
+        var folder = AppLog.Folder;
+        if (folder is null || !Directory.Exists(folder)) return;
+        Process.Start(new ProcessStartInfo("explorer.exe", "\"" + folder + "\"") { UseShellExecute = true });
+    }
 
     private void OnFavorite(object s, RoutedEventArgs e)
     {
