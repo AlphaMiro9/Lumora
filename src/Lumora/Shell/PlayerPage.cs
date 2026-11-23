@@ -56,7 +56,7 @@ button[aria-pressed=true]{background:#f59e0b;color:#14232a;font-weight:600}
 <button id="cc" aria-pressed="false" aria-label="Untertitel für dieses Video" title="Untertitel für dieses Video an/aus (falls vorhanden)">UT</button>
 <button id="fs" aria-label="Vollbild">&#9974;</button>
 </div>
-<div id="info"><span id="title">Lade …</span><a href="#" id="yt">Auf YouTube ansehen</a></div>
+<div id="info"><span id="title">Lade …</span></div>
 </div>
 <script>
 var q=new URLSearchParams(location.search),id=q.get('v')||'',useSb=q.get('sb')==='1';
@@ -69,7 +69,7 @@ function fmt(t){t=Math.max(0,Math.floor(t||0));var h=Math.floor(t/3600),m=Math.f
  return (h?h+':'+String(m).padStart(2,'0'):m)+':'+String(s).padStart(2,'0')}
 function showErr(msg){$('errtext').textContent=msg;$('err').style.display='flex'}
 function toRaw(e){if(e)e.preventDefault();P({type:'raw',id:id})}
-$('raw').addEventListener('click',toRaw);$('yt').addEventListener('click',toRaw);
+$('raw').addEventListener('click',toRaw);
 
 if(!/^[A-Za-z0-9_-]{11}$/.test(id)){showErr('Ungültiges Video.');}
 else{var sc=document.createElement('script');sc.src='https://www.youtube.com/iframe_api';
@@ -82,7 +82,7 @@ function build(start){
  if(!$('player')){var d=document.createElement('div');d.id='player';st.insertBefore(d,st.firstChild)}
  player=new YT.Player('player',{videoId:id,width:'100%',height:'100%',
   playerVars:{autoplay:1,controls:0,rel:0,modestbranding:1,playsinline:1,iv_load_policy:3,origin:location.origin,
-   cc_load_policy:cc?1:0,cc_lang_pref:'de',hl:'de',start:Math.floor(start||0)},
+   cc_load_policy:cc?1:0,cc_lang_pref:'de',hl:'de',fs:0,disablekb:1,start:Math.floor(start||0)},
   events:{onReady:onReady,onStateChange:onState,onError:onError}});
 }
 window.onYouTubeIframeAPIReady=function(){build(0)};
