@@ -40,7 +40,7 @@
                                 <MenuItem x:Name="MiFocus" Header="Fokus-Modus (keine Vorschläge neben dem Video)" IsCheckable="True" Click="OnSettingChanged" />
                                 <Separator />
                                 <MenuItem x:Name="MiOwn" Header="Eigener Player (Videos in Lumora abspielen)" IsCheckable="True" Click="OnSettingChanged" />
-                                <MenuItem x:Name="MiSb" Header="Sponsor-Segmente überspringen (SponsorBlock)" IsCheckable="True" Click="OnSettingChanged" />
+                                <MenuItem x:Name="MiSb" Header="Sponsor-Segmente überspringen (SponsorBlock, sponsor.ajay.app, CC BY-NC-SA 4.0)" IsCheckable="True" Click="OnSettingChanged" />
                                 <Separator />
                                 <MenuItem x:Name="MiAutoUpdate" Header="Beim Start nach Updates suchen" IsCheckable="True" Click="OnSettingChanged" />
                                 <MenuItem Header="Jetzt nach Updates suchen …" Click="OnCheckUpdate" />

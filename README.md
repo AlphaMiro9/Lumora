@@ -2,7 +2,7 @@
 
 Eigenständige Windows-App mit eigenem Namen, eigenem Logo, eigener Startseite und **eigenem Videoplayer**.
 Die Suche ist die normale YouTube-Suche. Ein Klick auf ein Video öffnet es in Lumoras Player mit eigener Steuerung
-(Abspielen, Position, Tempo, Lautstärke, Vollbild, Tastenkürzel) statt auf der YouTube-Seite.
+(Abspielen, Position, Tempo, Lautstärke, Untertitel pro Video, Vollbild, Tastenkürzel) statt auf der YouTube-Seite.
 
 ## Funktionen
 
@@ -10,7 +10,9 @@ Die Suche ist die normale YouTube-Suche. Ein Klick auf ein Video öffnet es in L
 |---|---|
 | Suche | Die echte YouTube-Suche in **WebView2** (Edge-Engine). Kein API-Schlüssel nötig |
 | Player | YouTubes offizieller Einbettungs-Player (IFrame-API) mit Lumoras eigener Bedienleiste. Das YouTube-Logo im Player bleibt, so verlangen es die Regeln |
-| SponsorBlock | Optional: überspringt Sponsor-, Eigenwerbungs- und Aufforderungs-Segmente (Daten von sponsor.ajay.app, CC BY-NC-SA 4.0, nur nicht-kommerziell) |
+| SponsorBlock | Optional: überspringt Sponsor-, Eigenwerbungs- und Aufforderungs-Segmente (Daten von sponsor.ajay.app, CC BY-NC-SA 4.0, nur nicht-kommerziell). Ein-/Ausschalten und Quellenangabe stehen in den Einstellungen |
+| Vollbild | Im Vollbild blendet sich die Leiste nach 3 Sekunden aus und erscheint bei Mausbewegung am unteren Rand oder Tastendruck wieder |
+| Untertitel | Die Taste „UT“ (oder C) schaltet Untertitel nur für das aktuelle Video an oder aus. Lumora merkt sich die Wahl pro Video |
 | Datenbank | Zuletzt gesehen, Favoriten, Suchverlauf und Einstellungen liegen in einer lokalen **SQLite**-Datenbank. Alte JSON-Daten werden übernommen |
 | Protokoll | Eigene Log-Datei (rotiert automatisch, keine Suchbegriffe). Öffnen über Einstellungen → Protokoll-Ordner |
 | Update-Modus | Sucht beim Start nach neuen Releases. „Jetzt aktualisieren“ lädt die neue Exe, prüft die SHA-256-Prüfsumme und startet neu. Abschaltbar |
@@ -21,6 +23,7 @@ Die Suche ist die normale YouTube-Suche. Ein Klick auf ein Video öffnet es in L
 | Rechte | `asInvoker` – keine Windows-Administratorrechte nötig |
 
 Manche Videos erlauben die Einbettung nicht. Dann bietet der Player „Auf YouTube ansehen“ an.
+Der Player passt sich schmalen Fenstern an. Eine echte Handy-App gibt es noch nicht, Lumora läuft nur unter Windows.
 Voraussetzung: Windows 10/11 mit der *WebView2-Runtime* (in Windows 11 und aktuellem Edge enthalten).
 
 ## Download
